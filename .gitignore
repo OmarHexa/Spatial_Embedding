@@ -1,0 +1,6 @@
+best_iou_model*
+checkpoint*
+exp*/
+.gitignore
+__pycache__
+.vscode
