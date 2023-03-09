@@ -3,7 +3,6 @@ import torch.nn as nn
 import torch.nn.init as init
 import torch.nn.functional as F
 import torchvision.transforms.functional as TF
-from torchsummary import summary
 from functools import wraps
 from time import time
 
@@ -345,7 +344,7 @@ class HyperNet(nn.Module):
             
         self.output = OutputBlock(feature,num_classes,drop)
         
-    @timing  
+#     @timing  
     def forward(self, input):
         input = self.downsample(input)
         encode1 = self.encoder[0](input)

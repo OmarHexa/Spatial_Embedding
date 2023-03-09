@@ -10,11 +10,11 @@ from PIL import Image
 import torch
 from utils import transforms as my_transforms
 
-H2GIGA_DIR='./../augmented_data/H2giga'
+H2GIGA_DIR='../Data/augmented/H2giga'
 
 args = dict(
 
-    cuda=False,
+    cuda=True,
 
     save=True,
     save_dir='./exp',
@@ -40,8 +40,8 @@ args = dict(
                 ]),
                 },
             
-            'batch_size': 2,
-            'workers': 1,
+            'batch_size': 15,
+            'workers': 5,
         }, 
 
     val_dataset = {
@@ -54,13 +54,13 @@ args = dict(
                 {
                     'name': 'ToTensor',
                     'opts': {
-                        'keys': ('image', 'hs','instance', 'label'),
+                        'keys': ('image','hs','instance', 'label'),
                         'type': (torch.FloatTensor,torch.FloatTensor, torch.ByteTensor, torch.ByteTensor),
                             }
                 },
                 ]),
-        'batch_size': 2,
-        'workers': 1,
+        'batch_size': 15,
+        'workers': 5,
     }, 
 
     model = {

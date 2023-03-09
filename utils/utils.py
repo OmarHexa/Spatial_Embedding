@@ -226,6 +226,12 @@ class Visualizer:
                 index = j+(20*i)+1
                 color_label[label ==index] = tuple(int(color*255) for color in self.cmap.colors[j])
         return color_label
+    def prepare_pred(self,output):
+        prediction = torch.zeros_like((output.shape[1],output.shape[1]))
+        for i in range(self.num_class):
+            temp =output[i]>0.5
+            prediction[temp] =i+1
+        prediction = torch.from_numpy(self.label2colormap(prediction.numpy())).permute(2,0,1)
     
     def prepare_internal(self,output):
         vec_x = self.normalize(torch.tanh(output[0])) # h x w

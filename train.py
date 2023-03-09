@@ -35,6 +35,7 @@ def train(args,model,optimizer,criterion,train_dataloader,device):
     for i, sample in enumerate(tqdm(train_dataloader)):
 
         im = sample['hs'].to(device)
+        print(im.shape)
         # instances = sample['instance'].squeeze().to(device)
         class_labels = sample['label'].squeeze().to(device)
 
@@ -63,6 +64,7 @@ def val(args,model,criterion,val_dataloader,visualizer,device,epoch):
         for i, sample in enumerate(tqdm(val_dataloader)):
 
             im = sample['hs'].to(device)
+            print(im.shape)
             # instances = sample['instance'].squeeze().to(device)
             class_labels = sample['label'].squeeze().to(device)
 
@@ -74,19 +76,18 @@ def val(args,model,criterion,val_dataloader,visualizer,device,epoch):
             loss_meter.update(loss.item())
             
         if args['save']:
-                image = io.imread(sample['im_name'])
-                image = (im[0].numpy() *255).transpose(1,2,0)
-                labels = class_labels[0].numpy()
+                image = sample['image'].numpy()*255
+                image = np.transpose(image,(1,2,0)).astype(np.uint8)
+                labels = class_labels[0].cpu().numpy()
+                output = output[0].cpu()
                 
                 base, _ = os.path.splitext(os.path.basename(sample['im_name'][0]))
-                name = os.path.join(args['save_dir'], 'epoch_'+str(epoch)+base+'.png')
+                name = os.path.join(args['save_dir'], 'epoch_'+str(epoch)+'_'+base+'.png')
                 labels = visualizer.label2colormap(labels)
                 gt = torch.from_numpy(visualizer.overlay_image(image,labels)).permute(2,0,1)
                 
-                
-                offset, sigma,pred = visualizer.prepare_internal(output=output[0])
-                
-                grid = make_grid([gt,pred,offset,sigma],nrow=2)
+                pred = visualizer.prepare_pred(output=output)                
+                grid = make_grid([gt,pred])
                 grid = grid.permute(1,2,0).numpy()
                 io.imsave(name,grid)
 
