@@ -7,7 +7,7 @@ import numpy as np
 
 import torch
 import torch.nn as nn
-from criterions.lovasz_losses import lovasz_hinge
+# from criterions.lovasz_losses import lovasz_hinge
 
 
 class SpatialEmbLoss(nn.Module):
@@ -137,3 +137,47 @@ def calculate_iou(pred, label):
     else:
         iou = intersection.item() / union.item()
         return iou
+
+
+
+
+def DiceBceLoss(inputs, targets, smooth=1):      
+        
+        #flatten label and prediction tensors
+    inputs = inputs.view(-1)
+    targets = targets.view(-1)
+        
+        
+    intersection = (inputs * targets).sum()                            
+    dice_loss = 1 - (2.*intersection + smooth)/(inputs.sum() + targets.sum() + smooth)  
+    BCE = nn.functional.binary_cross_entropy(inputs, targets, reduction='mean')
+    Dice_BCE = BCE + dice_loss
+        
+    return Dice_BCE
+
+class DiceBceLossMulti(nn.Module):
+    def __init__(self, num_class=5, class_weight=None):
+        super().__init__()
+        self.class_id = list(range(1,num_class+1))
+        self.class_weight = class_weight
+    def forward(self,prediction, labels, iou=False, iou_meter=None):
+        batch_size = prediction.size(0)
+        loss =0
+        for b in range(batch_size):
+            label = labels[b]
+            for id, cl in enumerate(self.class_id):
+                pred = prediction[b,id]
+                gt = label.eq(cl).type(torch.float)  
+                loss+= DiceBceLoss(pred,gt)
+                # calculate instance iou
+                if iou:
+                    iou_meter.update(calculate_iou(pred > 0.5, gt))
+        return loss
+
+
+if __name__ == "__main__":
+    input = torch.randn(1, 5, 416, 416)
+    labels =torch.ones((1,1,416,416), dtype=torch.bool)
+    loss = DiceBceLossMulti(5)
+    l = loss(torch.sigmoid(input),labels)
+    

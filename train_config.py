@@ -31,69 +31,59 @@ args = dict(
             'normalize':True,
             'transform': my_transforms.get_transform([
                 {
-                    'name': 'RandomRotationsAndFlips',
-                    'opts': {
-                        'keys': ('image', 'instance','label'),
-                        'degrees': 90,
-                    }
-                },
-                {
                     'name': 'ToTensor',
                     'opts': {
-                        'keys': ('image', 'instance', 'label'),
-                        'type': (torch.FloatTensor, torch.ByteTensor, torch.ByteTensor),
-                    }
+                        'keys': ('image', 'hs','instance', 'label'),
+                        'type': (torch.FloatTensor,torch.FloatTensor, torch.ByteTensor, torch.ByteTensor),
+                            }
                 },
-            ]),
-        },
-        'batch_size': 2,
-        'workers': 1,
-    }, 
+                ]),
+                },
+            
+            'batch_size': 2,
+            'workers': 1,
+        }, 
 
     val_dataset = {
         'name': 'H2giga',
         'kwargs': {
             'root_dir': H2GIGA_DIR,
             'type': 'val',
-            'transform': my_transforms.get_transform([
+                },
+        'transform': my_transforms.get_transform([
                 {
                     'name': 'ToTensor',
                     'opts': {
-                        'keys': ('image', 'instance', 'label'),
-                        'type': (torch.FloatTensor, torch.ByteTensor, torch.ByteTensor),
-                    }
+                        'keys': ('image', 'hs','instance', 'label'),
+                        'type': (torch.FloatTensor,torch.FloatTensor, torch.ByteTensor, torch.ByteTensor),
+                            }
                 },
-            ]),
-        },
+                ]),
         'batch_size': 2,
         'workers': 1,
     }, 
 
     model = {
-        'name': 'branched_erfnet', 
+        'name': 'hypernet', 
         'kwargs': {
-            'num_classes': [4,5]
+            'in_channel': 164,
+            'num_classes': 5,
+            'resolution': (416,416)
         }
     }, 
 
     lr=5e-4,
-    n_epochs=1,
-    grid_size = 1024,
+    n_epochs=100,
 
     # loss options
     loss_opts={
-        'to_center': True,
-        'n_sigma': 2,
         'class_weight': [10, 10, 10, 10, 10],
         'num_class': 5
     },
-    loss_w={
-        'w_inst': 1,
-        'w_var': 10,
-        'w_seed': 5,
-    },
+    
 )
 
 
 def get_args():
     return copy.deepcopy(args)
+ 
