@@ -73,19 +73,22 @@ def val(args,model,criterion,val_dataloader,visualizer,device,epoch):
             loss_meter.update(loss.item())
             
         if args['save']:
-                image = sample['image'][0]
-                image = (image.numpy() *255).transpose(1,2,0)
-                labels = class_labels[0].numpy()
+            image = sample['image'][0]
+            image = (image.numpy() *255).transpose(1,2,0)
+            labels = class_labels[0].cpu().numpy()
                 
-                base, _ = os.path.splitext(os.path.basename(sample['im_name'][0]))
-                name = os.path.join(args['save_dir'], 'epoch_'+str(epoch)+'_'+base+'.png')
-                labels = visualizer.label2colormap(labels)
-                gt = torch.from_numpy(visualizer.overlay_image(image,labels)).permute(2,0,1)
+            base, _ = os.path.splitext(os.path.basename(sample['im_name'][0]))
+            name = os.path.join(args['save_dir'], 'epoch_'+str(epoch)+base+'.png')
+            labels = visualizer.label2colormap(labels)
+            gt = torch.from_numpy(visualizer.overlay_image(image,labels)).permute(2,0,1)
                 
-                pred = visualizer.prepare_pred(output=output)                
-                grid = make_grid([gt,pred])
-                grid = grid.permute(1,2,0).numpy()
-                io.imsave(name,grid)
+                
+            offset, sigma,pred = visualizer.prepare_internal(output=output[0].cpu())
+                
+            grid = make_grid([gt,pred,offset,sigma],nrow=2)
+            grid = grid.permute(1,2,0).numpy()
+            io.imsave(name,grid)
+            print("image saved as {}".format(name))
 
     return loss_meter.avg, iou_meter.avg
 
@@ -203,5 +206,12 @@ def begin_trianing(args,device):
 
 if __name__=="__main__":
     args =train_config.get_args()
-    device ='cpu'
+    if args['save']:
+        if not os.path.exists(args['save_dir']):
+            os.makedirs(args['save_dir'])
+            print("created directory {}".format(args["save_dir"]))
+    device = torch.device("cuda:0" if args['cuda'] & torch.cuda.is_available() else "cpu")
+    print('Using device:', device)
+    for i in range(torch.cuda.device_count()):
+        print(torch.cuda.get_device_name(i))
     begin_trianing(args,device=device)

@@ -15,7 +15,6 @@ H2GIGA_DIR='../Data/augmented/H2giga'
 args = dict(
 
     cuda=True,
-
     save=True,
     save_dir='./exp',
     resume_path=None, 
@@ -40,8 +39,8 @@ args = dict(
                 ]),
                 },
             
-            'batch_size': 15,
-            'workers': 5,
+            'batch_size': 20,
+            'workers': 2,
         }, 
 
     val_dataset = {
@@ -59,8 +58,8 @@ args = dict(
                 },
                 ]),
                 },
-        'batch_size': 15,
-        'workers': 5,
+        'batch_size': 20,
+        'workers': 2,
     }, 
 
     model = {
@@ -77,7 +76,7 @@ args = dict(
 
     # loss options
     loss_opts={
-        'class_weight': [10, 10, 10, 10, 10],
+        'class_weight': [8, 10, 4, 8, 5],
         'num_class': 5,
         'n_sigma': 2
     },
