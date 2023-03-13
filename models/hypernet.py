@@ -146,7 +146,7 @@ class ChannelsamplerBlock(nn.Module):
         super().__init__()
         mid_channel = in_channel//2
         self.conv1 = nn.Conv2d(in_channel, mid_channel,
-                              (3, 3), stride=2, padding=1, bias=True)
+                              (3, 3), stride=2, padding=1,groups=1, bias=True)
         self.soca = SOCA(mid_channel)
         self.conv2 = nn.Conv2d(mid_channel, out_channel,
                               (1, 1), stride=1, padding=0, bias=True)
@@ -213,7 +213,7 @@ class Skip_connector(nn.Module):
         output = self.bn(output)
         return F.relu(output)
         
-        
+     
  
 # class HyperNet(nn.Module):
 #     # use encoder to pass pretrained encoder
@@ -305,7 +305,8 @@ class HyperNet(nn.Module):
         output = self.encoder(input)  # predict=False by default
         return self.decoder.forward(output)
 
-
+def run_model(model, data):
+    outputs = model(data)
 # taken from pytorch : https://discuss.pytorch.org/t/gpu-memory-that-model-uses/56822
 def ModelSize(model):
     param_size = sum([param.nelement()*param.element_size() for param in model.parameters()])
@@ -315,20 +316,32 @@ def ModelSize(model):
     print('Model size: {:.3f}MB'.format(size_all_mb))
 
 if __name__ == "__main__":
-    import numpy as np
-
+    import torch.utils.benchmark as benchmark
     # create some input data
     input = torch.randn(20, 164, 416, 416)
     model = HyperNet(164,5)
     model.eval()
     output = model(input)
     # print the shape of the output tensor
-    # ModelSize(model)
+    ModelSize(model)
     print(output.shape)
     # summary(model,(116,416,416))
-    # with profile(activities=[ProfilerActivity.CPU]) as prof:
-    #     model(input)
-    # # print(prof.key_averages().table(sort_by="cpu_time_total", row_limit=20))
+    # with profile(with_stack=False,activities=[ProfilerActivity.CPU]) as prof:
+    #     with record_function("model_inference"):
+    #         model(input)
+    # print(prof.key_averages().table(sort_by="cpu_time_total", row_limit=10))
 
     # prof.export_chrome_trace("hypernet.json")
     
+    
+    
+
+    # num_threads = torch.get_num_threads()
+    # t = benchmark.Timer(
+    #     stmt = 'run_model(model, data)',
+    #     setup = 'from __main__ import run_model',
+    #     globals={'model': model, 'data': input},
+    #     num_threads=num_threads,
+    #     label="Average Inference Duration",
+    #     )
+    # print(t.timeit(20))

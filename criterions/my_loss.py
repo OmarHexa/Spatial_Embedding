@@ -7,7 +7,7 @@ import numpy as np
 
 import torch
 import torch.nn as nn
-# from criterions.lovasz_losses import lovasz_hinge
+from criterions.lovasz_losses import lovasz_hinge
 
 
 class SpatialEmbLoss(nn.Module):
