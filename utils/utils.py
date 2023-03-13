@@ -243,7 +243,7 @@ class Visualizer:
         
         
         sigma = torch.stack([sigma_x,sigma_y,padd],dim=0) #3 x h x w
-        offset = torch.stack([sigma_x,sigma_y,padd],dim=0) #3 x h x w
+        offset = torch.stack([vec_x,vec_y,padd],dim=0) #3 x h x w
         
         prediction = torch.zeros_like(vec_x)
         for i in range(self.num_class):

@@ -5,6 +5,7 @@ import torch.nn.functional as F
 import torchvision.transforms.functional as TF
 from functools import wraps
 from time import time
+from torch.profiler import profile, record_function, ProfilerActivity
 
 def timing(f):
     @wraps(f)
@@ -16,23 +17,23 @@ def timing(f):
         return result
     return wrap
 
-class Conv2dpsuedo(nn.Module):
-    def __init__(self, chann, dropprob, dilation=1):
+class non_bottleneck_1d(nn.Module):
+    def __init__(self, chann, dropprob=0.3, groups =2,dilation=1):
         super().__init__()
 
         self.conv3x1_1 = nn.Conv2d(chann, chann, (3, 1), stride=1, padding=(
-            1*dilation, 0), bias=True,groups=chann, dilation=(dilation, 1))
+            1*dilation, 0), bias=True,groups=groups, dilation=(dilation, 1))
 
         self.conv1x3_1 = nn.Conv2d(chann, chann, (1, 3), stride=1, padding=(
-            0, 1*dilation), bias=True,groups=chann, dilation=(1, dilation))
+            0, 1*dilation), bias=True,groups=groups, dilation=(1, dilation))
 
         # self.bn1 = nn.BatchNorm2d(chann, eps=1e-03)
 
         self.conv3x1_2 = nn.Conv2d(chann, chann, (3, 1), stride=1, padding=(
-            2*(dilation), 0), bias=True, groups=chann,dilation=(2*dilation, 1))
+            2*(dilation), 0), bias=True, groups=groups,dilation=(2*dilation, 1))
 
         self.conv1x3_2 = nn.Conv2d(chann, chann, (1, 3), stride=1, padding=(
-            0, 2*(dilation)), bias=True,groups=chann, dilation=(1, 2*dilation))
+            0, 2*(dilation)), bias=True,groups=groups, dilation=(1, 2*dilation))
 
         self.bn2 = nn.BatchNorm2d(chann, eps=1e-03)
 
@@ -56,114 +57,41 @@ class Conv2dpsuedo(nn.Module):
         # print("Conv2dpsuedo",input.shape)
         return F.relu(output+input)  # +input = identity (residual connection)
 
-
-
-class CSPCompBlock(nn.Module):
-    def __init__(self, in_channel, resolution, drop, factor=1) -> None:
-        super().__init__()
-        dilation = [1, 1, 1]*factor
-        self.convhw = Conv2dpsuedo(
-            chann=in_channel, dropprob=drop, dilation=dilation[0])
-        self.convch = Conv2dpsuedo(
-            chann=resolution[1], dropprob=drop, dilation=dilation[1])
-        self.convcw = Conv2dpsuedo(
-            chann=resolution[0], dropprob=drop, dilation=dilation[2])
-    # @timing
-    def forward(self, input):
-        # input b(0) x c(1) x h(2) x w(3)
-        chw = self.convhw(input)
-        # b(0) x c(1) x h(2) x w(3)
-        wch = chw.permute(0, 3, 1, 2)
-        # b(0) x w(1) x c(2) x h(3)
-        wch = self.convch(wch)
-        # b(0) x w(1) x c(2) x h(3)
-        hcw = wch.permute(0, 3, 2, 1)
-        # b(0) x h(1) x c(2) x w(3)
-        hcw = self.convcw(hcw)
-        # b(0) x h(1) x c(2) x w(3)
-        output = torch.cat((input, chw, wch.permute(
-            0, 2, 3, 1), hcw.permute(0, 2, 1, 3)), dim=1)
-        # print("CONV3Dpsuedo")
-        return output
     
-class ELANCompBlock(nn.Module):
-    def __init__(self, in_channel, resolution, drop, factor=1) -> None:
+class EELAN(nn.Module):
+    def __init__(self, in_channel, out_channel) -> None:
         super().__init__()
-        dilation = [1, 1, 1]*factor
-        self.convhw = Conv2dpsuedo(
-            chann=in_channel, dropprob=drop, dilation=dilation[0])
-        self.convch = Conv2dpsuedo(
-            chann=resolution[1], dropprob=drop, dilation=dilation[1])
-        self.convcw = Conv2dpsuedo(
-            chann=resolution[0], dropprob=drop, dilation=dilation[2])
-    # @timing
-    def forward(self, input):
-        # input b(0) x c(1) x h(2) x w(3)
-        chw = self.convhw(input)
-        # b(0) x c(1) x h(2) x w(3)
-        wch = chw.permute(0, 3, 1, 2)
-        # b(0) x w(1) x c(2) x h(3)
-        wch = self.convch(wch)
-        # b(0) x w(1) x c(2) x h(3)
-        hcw = wch.permute(0, 3, 2, 1)
-        # b(0) x h(1) x c(2) x w(3)
-        hcw = self.convcw(hcw)
-        # b(0) x h(1) x c(2) x w(3)
-        
-        output = hcw.permute(0, 2, 1, 3)
-        # print("ELANCompBlock")
-        return output
-
-class CSPVoV3D(nn.Module):
-    def __init__(self, in_channel, out_channel, resolution, drop) -> None:
-        super().__init__()
-        self.block1 = CSPCompBlock(in_channel, resolution, drop)
-        self.agg1 = nn.Conv2d(4*in_channel, in_channel,
-                              kernel_size=1, stride=1, padding=0, bias=True)
-        # self.bn1 = nn.BatchNorm2d(in_channel, eps=1e-03)
-        self.block2 = CSPCompBlock(in_channel, resolution, drop, factor=2)
-        self.agg2 = nn.Conv2d(4*in_channel, out_channel,
-                              kernel_size=1, stride=1, padding=0, bias=True)
-        # self.agg2 = nn.Conv2d(5*in_channel, out_channel,
-        #                       kernel_size=1, stride=1, padding=0, bias=True)
-        self.bn2 = nn.BatchNorm2d(out_channel, eps=1e-03)
-
-    # TODO include partialization
-    # @timing
-    def forward(self, input):
-        x = self.block1(input)
-        x = self.agg1(x)
-        # x = self.bn1(x)
-        x = self.block2(x)
-        # x = self.agg2(torch.cat((input, x), dim=1))
-        x = self.agg2(x)
-        x = self.bn2(x)
-        # print("CSPVoV3D")
-        return F.relu(x)
-    
-class ELAN3D(nn.Module):
-    def __init__(self, in_channel, out_channel, resolution, drop,stage=2) -> None:
-        super().__init__()
-        mid_channel = int(in_channel/2)
+        mid_channel = in_channel//2
         self.convleft = nn.Conv2d(in_channel, mid_channel, 1, 1)
         self.convright = nn.Conv2d(in_channel, mid_channel, 1, 1)
-        self.block1 = ELANCompBlock(mid_channel, resolution, drop)
-        self.block2 = ELANCompBlock(mid_channel, resolution, drop, factor=2)
+        self.nonbt1 = non_bottleneck_1d(mid_channel,dilation=1)
+        self.nonbt2 = non_bottleneck_1d(mid_channel, dilation=4)
+        self.nonbt3 = non_bottleneck_1d(mid_channel, dilation=1)
+        self.nonbt4 = non_bottleneck_1d(mid_channel, dilation=4)
+        
         self.agg = nn.Conv2d(2*in_channel, out_channel,
                               kernel_size=1, stride=1, padding=0, bias=True)
         self.bn2 = nn.BatchNorm2d(out_channel, eps=1e-03)
 
     # @timing
     def forward(self, input):
+        #channel partialization
         x_left = self.convleft(input)
         x_right =self.convright(input)
         #computational block
-        x1 = self.block1(x_right)
-        x2 = self.block2(x1)
+        x1 = self.nonbt1(x_right)
+        x1 = self.nonbt2(x1)
+        x2 = self.nonbt3(x1)
+        x2 = self.nonbt4(x2)
+        
+        c_ = x_left.shape[-1]//2
+        #channel shuffle
+        xg1 = torch.cat((x_left[:,:c_],x_right[:,:c_],x1[:,:c_],x2[:,:c_]),dim=1)
+        xg2 = torch.cat((x_left[:,c_:],x_right[:,c_:],x1[:,c_:],x2[:,c_:]),dim=1)
+        
         # aggregation
-        x = self.agg(torch.cat((x_left,x_right,x1,x2), dim=1))
+        x = self.agg(torch.cat((xg1,xg2),dim=1))
         x = self.bn2(x)
-        # print("ELAN3D")
         return F.relu(x)
 
 class SOCA(nn.Module):
@@ -208,18 +136,19 @@ class DownsamplerBlock(nn.Module):
         self.bn = nn.BatchNorm2d(out_channel, eps=1e-3)
 
     def forward(self, input):
-        output = torch.cat([self.conv(input), self.pool(input)], 1)
+        output = torch.cat([self.conv(input), self.pool(input)], dim=1)
         output = self.bn(output)
         return F.relu(output)
     
 class ChannelsamplerBlock(nn.Module):
     def __init__(self, in_channel, out_channel):
         super().__init__()
-        self.conv1 = nn.Conv2d(in_channel, in_channel,
-                              (3, 3), stride=2, padding=1, bias=True)
-        self.soca = SOCA(in_channel)
-        self.conv2 = nn.Conv2d(in_channel, out_channel,
-                              (3, 3), stride=1, padding=1, bias=True)
+        mid_channel = in_channel//2
+        self.conv1 = nn.Conv2d(in_channel, mid_channel,
+                              (3, 3), stride=2, padding=1,groups=1, bias=True)
+        self.soca = SOCA(mid_channel)
+        self.conv2 = nn.Conv2d(mid_channel, out_channel,
+                              (1, 1), stride=1, padding=0, bias=True)
         self.bn = nn.BatchNorm2d(out_channel, eps=1e-3)
 
     def forward(self, input):
@@ -245,63 +174,31 @@ class UpsamplerBlock (nn.Module):
 
 
 class EncoderBlock(nn.Module):
-    def __init__(self, in_channel, out_channel, resolution, drop=0.03) -> None:
+    def __init__(self, in_channel,out_channel) -> None:
         super().__init__()
-        self.in_channel = in_channel
-        # self.cspvov = CSPVoV3D(
-        #     self.in_channel, out_channel=self.in_channel, resolution=resolution, drop=drop)
-        self.cspvov = ELAN3D(
-            self.in_channel, out_channel=self.in_channel, resolution=resolution, drop=drop)
-        self.soca = SOCA(self.in_channel)
-        self.down = DownsamplerBlock(self.in_channel, out_channel)
+        self.compblock = EELAN(in_channel, out_channel=in_channel)
+        self.soca = SOCA(in_channel)
+        self.down = DownsamplerBlock(in_channel, out_channel)
     # @timing
     def forward(self, x):
-        x = self.cspvov(x)
+        x = self.compblock(x)
         x = self.soca(x)
         x = self.down(x)
-        # print("Encoder",x.shape)
         return x
 
 class DecoderBlock(nn.Module):
-    """
-    First upscale the resolution and reduces to half of the input channel. input channel is double 
-    of the output from the last layer due to skip connection concatenation. Applies channel 
-    attention and then reduces the channel to the output channel by COSVoV net.
-    """
-    def __init__(self, in_channel, out_channel, resolution, drop=0.03) -> None:
+    def __init__(self, in_channel, out_channel) -> None:
         super().__init__()
         self.up = UpsamplerBlock(in_channel, out_channel)
-        resolution = resolution*2
         self.soca = SOCA(out_channel)
-        # self.cspvov = CSPVoV3D(
-        #     out_channel, out_channel=out_channel, resolution=resolution, drop=drop)
-        self.cspvov = ELAN3D(
-            out_channel, out_channel=out_channel, resolution=resolution, drop=drop)
+        self.nonbt = non_bottleneck_1d(out_channel)
     # @timing
     def forward(self, input):
         x = self.up(input)
         x = self.soca(x)
-        x = self.cspvov(x)
+        x = self.nonbt(x)
         # print("Decoder",input.shape)
         return x
-
-class OutputBlock(nn.Module):
-    def __init__(self,in_channel,out_channel,drop) -> None:
-        super().__init__()
-        self.up = UpsamplerBlock(in_channel,in_channel)
-        self.soca = SOCA(in_channel)
-        self.conv = nn.Conv2d(in_channel,out_channel,3,1,1)
-        # self.convdw = Conv2dpsuedo(in_channel,drop)
-        # self.convpw = nn.Conv2d(in_channel,out_channel,1,1,0)
-        self.bn = nn.BatchNorm2d(out_channel,eps=1e-3)
-    # @timing
-    def forward(self,x):
-        x = self.up(x)
-        x = self.soca(x)
-        x = self.conv(x)
-        # x = self.convdw(x)
-        # x = self.convpw(x)
-        return self.bn(x)
         
 class Skip_connector(nn.Module):
     def __init__(self,in_channel,out_channel) -> None:
@@ -315,57 +212,135 @@ class Skip_connector(nn.Module):
         output = self.bn(output)
         return F.relu(output)
         
-        
+     
  
-class HyperNet(nn.Module):
-    # use encoder to pass pretrained encoder
-    def __init__(self, in_channel, num_classes, resolution, feature=32, drop=0.3):
-        super().__init__()
-        self.stage = 2
-        resolution = torch.tensor(resolution)
-        self.encoder = nn.ModuleList()
-        self.decoder = nn.ModuleList()
-        self.skip = nn.ModuleList()
+# class HyperNet(nn.Module):
+#     # use encoder to pass pretrained encoder
+#     def __init__(self, in_channel, num_classes, feature=32):
+#         super().__init__()
+#         self.encoder = nn.ModuleList()
+#         self.decoder = nn.ModuleList()
+#         self.skip = nn.ModuleList()
 
-        self.downsample = ChannelsamplerBlock(in_channel,feature)# C x H --> 32 x H/2
-        resolution = torch.div(resolution, 2, rounding_mode='trunc')
-        in_channel = feature
+#         self.downsample = ChannelsamplerBlock(in_channel,feature)# C x H --> 32 x H/2
+#         in_channel = feature
         
-        for id in range(2,(2*self.stage)+1,2):
-            self.encoder.append(EncoderBlock(in_channel, id*feature, resolution)) #32 x H/2 --> (64,128) x (H/4,H/8)
-            in_channel = id*feature 
-            resolution = torch.div(resolution, 2, rounding_mode='trunc')
-        # in_channel =128
-        for id in reversed(range(1,self.stage+1)):
-            self.decoder.append(DecoderBlock(in_channel,feature*id, resolution))
-            in_channel = id*feature
-            resolution = resolution*2
-            self.skip.append(Skip_connector(2*in_channel,in_channel))
+#         for id in range(2,5,2):
+#             self.encoder.append(EncoderBlock(in_channel, id*feature)) #32 x H/2 --> (64,128) x (H/4,H/8)
+#             in_channel = id*feature 
             
-        self.output = OutputBlock(feature,num_classes,drop)
+#         self.decoder.append(DecoderBlock(in_channel,feature*2))
+#         self.skip.append(Skip_connector(feature*4,feature*2))
+#         self.decoder.append(DecoderBlock(feature*2,feature))
+#         self.skip.append(Skip_connector(feature*2,feature))
+        
+            
+#         self.output = UpsamplerBlock(feature,num_classes)
         
 #     @timing  
+#     def forward(self, input):
+#         input = self.downsample(input)
+#         encode1 = self.encoder[0](input)
+#         decode = self.encoder[1](encode1)
+#         decode = self.decoder[0](decode)
+#         decode = self.skip[0](torch.cat((decode,encode1),dim=1))
+#         decode = self.decoder[1](decode)
+#         decode = self.skip[1](torch.cat((decode,input),dim=1))
+#         decode = self.output(decode)
+
+#         return torch.sigmoid(decode)
+
+
+class HyperEncoder(nn.Module):
+    def __init__(self, in_channel, feature=32):
+        super().__init__()
+        self.chsample = ChannelsamplerBlock(in_channel,feature)
+        self.encoder = nn.ModuleList()
+        in_channel = feature
+        for id in range(2,5,2):
+            self.encoder.append(EncoderBlock(in_channel, id*feature)) #32 x H/2 --> (64,128) x (H/4,H/8)
+            in_channel = id*feature
+        
     def forward(self, input):
-        input = self.downsample(input)
-        encode1 = self.encoder[0](input)
-        decode = self.encoder[1](encode1)
-        decode = self.decoder[0](decode)
-        decode = self.skip[0](torch.cat((decode,encode1),dim=1))
-        decode = self.decoder[1](decode)
-        decode = self.skip[1](torch.cat((decode,input),dim=1))
-        decode = self.output(decode)
+        input = self.chsample(input)
+        encode = self.encoder[0](input)
+        encode = self.encoder[1](encode)
+        return encode
+class Decoder (nn.Module):
+    def __init__(self, num_classes):
+        super().__init__()
 
-        return torch.sigmoid(decode)
+        self.layers = nn.ModuleList()
 
+        self.layers.append(UpsamplerBlock(128, 64))
+        self.layers.append(non_bottleneck_1d(64, 0, 1))
+        self.layers.append(non_bottleneck_1d(64, 0, 1))
+
+        self.layers.append(UpsamplerBlock(64, 16))
+        self.layers.append(non_bottleneck_1d(16, 0, 1))
+        self.layers.append(non_bottleneck_1d(16, 0, 1))
+
+        self.output_conv = nn.ConvTranspose2d(
+            16, num_classes, 2, stride=2, padding=0, output_padding=0, bias=True)
+
+    def forward(self, input):
+        output = input
+
+        for layer in self.layers:
+            output = layer(output)
+
+        output = self.output_conv(output)
+
+        return output
+    
+class HyperNet(nn.Module):
+    def __init__(self, in_channel,num_classes):  # use encoder to pass pretrained encoder
+        super().__init__()
+
+        self.encoder = HyperEncoder(in_channel)
+        self.decoder = Decoder(num_classes)
+    @timing
+    def forward(self, input, only_encode=False):
+        output = self.encoder(input)  # predict=False by default
+        return self.decoder.forward(output)
+
+def run_model(model, data):
+    outputs = model(data)
+# taken from pytorch : https://discuss.pytorch.org/t/gpu-memory-that-model-uses/56822
+def ModelSize(model):
+    param_size = sum([param.nelement()*param.element_size() for param in model.parameters()])
+    buffer_size = sum([buf.nelement()*buf.element_size() for buf in model.buffers()])
+
+    size_all_mb = (param_size + buffer_size) / 1024**2
+    print('Model size: {:.3f}MB'.format(size_all_mb))
 
 if __name__ == "__main__":
-    import numpy as np
-
+    import torch.utils.benchmark as benchmark
     # create some input data
-    input = torch.randn(1, 116, 416, 416)
-    model = HyperNet(116, 5, (416, 416))
+    input = torch.randn(20, 164, 416, 416)
+    model = HyperNet(164,5)
     model.eval()
     output = model(input)
     # print the shape of the output tensor
+    ModelSize(model)
     print(output.shape)
-    summary(model,(116,416,416))
+    # summary(model,(116,416,416))
+    # with profile(with_stack=False,activities=[ProfilerActivity.CPU]) as prof:
+    #     with record_function("model_inference"):
+    #         model(input)
+    # print(prof.key_averages().table(sort_by="cpu_time_total", row_limit=10))
+
+    # prof.export_chrome_trace("hypernet.json")
+    
+    
+    
+
+    # num_threads = torch.get_num_threads()
+    # t = benchmark.Timer(
+    #     stmt = 'run_model(model, data)',
+    #     setup = 'from __main__ import run_model',
+    #     globals={'model': model, 'data': input},
+    #     num_threads=num_threads,
+    #     label="Average Inference Duration",
+    #     )
+    # print(t.timeit(20))

@@ -11,7 +11,7 @@ from tqdm import tqdm
 
 import torch
 import train_config
-from criterions.my_loss import DiceBceLossMulti
+from criterions.my_loss import SpatialEmbLoss
 from datasets import get_dataset
 from models import get_model
 from utils.utils import AverageMeter, Cluster, Logger , Visualizer
@@ -35,12 +35,11 @@ def train(args,model,optimizer,criterion,train_dataloader,device):
     for i, sample in enumerate(tqdm(train_dataloader)):
 
         im = sample['hs'].to(device)
-        print(im.shape)
-        # instances = sample['instance'].squeeze().to(device)
+        instances = sample['instance'].squeeze().to(device)
         class_labels = sample['label'].squeeze().to(device)
 
         output = model(im)
-        loss = criterion(output, class_labels)
+        loss = criterion(output,instances, class_labels)
         loss = loss.mean()
 
         optimizer.zero_grad()
@@ -64,22 +63,19 @@ def val(args,model,criterion,val_dataloader,visualizer,device,epoch):
         for i, sample in enumerate(tqdm(val_dataloader)):
 
             im = sample['hs'].to(device)
-            print(im.shape)
-            # instances = sample['instance'].squeeze().to(device)
+            instances = sample['instance'].squeeze().to(device)
             class_labels = sample['label'].squeeze().to(device)
 
             output = model(im)
-            loss = criterion(output, class_labels, **
-                             args['loss_w'], iou=True, iou_meter=iou_meter)
+            loss = criterion(output,instances, class_labels, iou=True, iou_meter=iou_meter)
             loss = loss.mean()
 
             loss_meter.update(loss.item())
             
         if args['save']:
-                image = sample['image'].numpy()*255
-                image = np.transpose(image,(1,2,0)).astype(np.uint8)
-                labels = class_labels[0].cpu().numpy()
-                output = output[0].cpu()
+                image = sample['image'][0]
+                image = (image.numpy() *255).transpose(1,2,0)
+                labels = class_labels[0].numpy()
                 
                 base, _ = os.path.splitext(os.path.basename(sample['im_name'][0]))
                 name = os.path.join(args['save_dir'], 'epoch_'+str(epoch)+'_'+base+'.png')
@@ -124,10 +120,11 @@ def begin_trianing(args,device):
 
 # set model
     model = get_model(args['model']['name'], args['model']['kwargs'])
+    model.init_output(args['loss_opts']['n_sigma'])
     model = torch.nn.DataParallel(model).to(device)
 
 # set criterion
-    criterion = DiceBceLossMulti(**args['loss_opts'])
+    criterion = SpatialEmbLoss(**args['loss_opts'])
     criterion = torch.nn.DataParallel(criterion).to(device)
 
 # set optimizer
@@ -140,7 +137,7 @@ def begin_trianing(args,device):
 
 
     # clustering
-    # cluster = Cluster(args['grid_size'],device=device)
+    cluster = Cluster(args['grid_size'],device=device)
 
 
     # Logger

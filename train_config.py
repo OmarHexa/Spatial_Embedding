@@ -49,8 +49,7 @@ args = dict(
         'kwargs': {
             'root_dir': H2GIGA_DIR,
             'type': 'val',
-                },
-        'transform': my_transforms.get_transform([
+            'transform': my_transforms.get_transform([
                 {
                     'name': 'ToTensor',
                     'opts': {
@@ -59,26 +58,28 @@ args = dict(
                             }
                 },
                 ]),
+                },
         'batch_size': 15,
         'workers': 5,
     }, 
 
     model = {
-        'name': 'hypernet', 
+        'name': 'branced_hypernet', 
         'kwargs': {
             'in_channel': 164,
-            'num_classes': 5,
-            'resolution': (416,416)
+            'num_classes': [4,5]
         }
     }, 
 
     lr=5e-4,
-    n_epochs=100,
+    n_epochs=50,
+    grid_size=1024,
 
     # loss options
     loss_opts={
         'class_weight': [10, 10, 10, 10, 10],
-        'num_class': 5
+        'num_class': 5,
+        'n_sigma': 2
     },
     
 )

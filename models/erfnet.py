@@ -57,7 +57,7 @@ class non_bottleneck_1d (nn.Module):
         self.bn2 = nn.BatchNorm2d(chann, eps=1e-03)
 
         self.dropout = nn.Dropout2d(dropprob)
-    @timing
+    # @timing
     def forward(self, input):
 
         output = self.conv3x1_1(input)
@@ -73,7 +73,6 @@ class non_bottleneck_1d (nn.Module):
 
         if (self.dropout.p != 0):
             output = self.dropout(output)
-        print("non_bottleneck_1d",input.shape)
         return F.relu(output+input)  # +input = identity (residual connection)
 
 
@@ -176,22 +175,16 @@ class Net(nn.Module):
 
 if __name__ == "__main__":
     # create an instance of the CSP3D class
-    import numpy as np
+    from torch.profiler import profile, record_function, ProfilerActivity
+    
     # create some input data
-    input = torch.randn(4, 3, 416, 416)
+    input = torch.randn(20, 3, 416, 416)
     model = Net(5)
-    output = model(input)
+    # output = model(input)
     # print the shape of the output tensor
-    print(output.shape)
-    model_parameters = filter(lambda p: p.requires_grad, model.parameters())
-    params = sum([np.prod(p.size()) for p in model_parameters])
-    print(params)
-    param_size = 0
-    for param in model.parameters():
-        param_size += param.nelement() * param.element_size()
-        buffer_size = 0
-    for buffer in model.buffers():
-        buffer_size += buffer.nelement() * buffer.element_size()
+    # print(output.shape)
+    with profile(activities=[ProfilerActivity.CPU]) as prof:
+        model(input)
+    print(prof.key_averages().table(sort_by="cpu_time_total", row_limit=10))
 
-    size_all_mb = (param_size + buffer_size) / 1024**2
-    print('model size: {:.3f}MB'.format(size_all_mb))
+    prof.export_chrome_trace("hypernet.json")
