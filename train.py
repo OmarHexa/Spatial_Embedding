@@ -34,12 +34,12 @@ def train(args,model,optimizer,criterion,train_dataloader,device):
 
     for i, sample in enumerate(tqdm(train_dataloader)):
 
-        im = sample['image'].to(device)
+        im = sample['hs'].to(device)
         instances = sample['instance'].squeeze().to(device)
         class_labels = sample['label'].squeeze().to(device)
 
         output = model(im)
-        loss = criterion(output, instances, class_labels, **args['loss_w'])
+        loss = criterion(output,instances, class_labels)
         loss = loss.mean()
 
         optimizer.zero_grad()
@@ -50,7 +50,7 @@ def train(args,model,optimizer,criterion,train_dataloader,device):
     return loss_meter.avg
 
 
-def val(args,model,criterion,val_dataloader,cluster,visualizer,device,epoch):
+def val(args,model,criterion,val_dataloader,visualizer,device,epoch):
 
     # define meters
     loss_meter, iou_meter = AverageMeter(), AverageMeter()
@@ -62,19 +62,19 @@ def val(args,model,criterion,val_dataloader,cluster,visualizer,device,epoch):
 
         for i, sample in enumerate(tqdm(val_dataloader)):
 
-            im = sample['image'].to(device)
+            im = sample['hs'].to(device)
             instances = sample['instance'].squeeze().to(device)
             class_labels = sample['label'].squeeze().to(device)
 
             output = model(im)
-            loss = criterion(output, instances, class_labels, **
-                             args['loss_w'], iou=True, iou_meter=iou_meter)
+            loss = criterion(output,instances, class_labels, iou=True, iou_meter=iou_meter)
             loss = loss.mean()
 
             loss_meter.update(loss.item())
             
         if args['save']:
-                image = (im[0].numpy() *255).transpose(1,2,0)
+                image = sample['image'][0]
+                image = (image.numpy() *255).transpose(1,2,0)
                 labels = class_labels[0].numpy()
                 
                 base, _ = os.path.splitext(os.path.basename(sample['im_name'][0]))
@@ -143,7 +143,7 @@ def begin_trianing(args,device):
 
 
     # Logger
-    logger = Logger(('train_loss', 'val_loss', 'iou'), 'loss')
+    logger = Logger(('train', 'val', 'iou'), 'loss')
     
     #visualizer
     visualizer = Visualizer(args)
@@ -177,7 +177,7 @@ def begin_trianing(args,device):
         print('Starting epoch {}'.format(epoch))
 
         train_loss = train(args,model,optimizer,criterion,train_dataloader,device)
-        val_loss, val_iou = val(args,model,criterion,train_dataloader,cluster,visualizer,device,epoch=epoch)
+        val_loss, val_iou = val(args,model,criterion,val_dataloader,visualizer,device,epoch=epoch)
         scheduler.step()
         
 

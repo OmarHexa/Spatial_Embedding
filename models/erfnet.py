@@ -8,7 +8,20 @@ import torch.nn as nn
 import torch.nn.init as init
 import torch.nn.functional as F
 
+from functools import wraps
+from time import time
 
+def timing(f):
+    @wraps(f)
+    def wrap(*args, **kw):
+        ts = time()
+        result = f(*args, **kw)
+        te = time()
+        # print('func:%r args:[%r, %r] took: %2.4f sec' % \
+        #   (f.__name__, args, kw, te-ts))
+        print(f'Function {f.__name__} took {te-ts:2.4f} seconds')
+        return result
+    return wrap
 class DownsamplerBlock (nn.Module):
     def __init__(self, ninput, noutput):
         super().__init__()
@@ -22,7 +35,6 @@ class DownsamplerBlock (nn.Module):
         output = torch.cat([self.conv(input), self.pool(input)], 1)
         output = self.bn(output)
         return F.relu(output)
-
 
 class non_bottleneck_1d (nn.Module):
     def __init__(self, chann, dropprob, dilated):
@@ -45,7 +57,7 @@ class non_bottleneck_1d (nn.Module):
         self.bn2 = nn.BatchNorm2d(chann, eps=1e-03)
 
         self.dropout = nn.Dropout2d(dropprob)
-
+    # @timing
     def forward(self, input):
 
         output = self.conv3x1_1(input)
@@ -61,7 +73,6 @@ class non_bottleneck_1d (nn.Module):
 
         if (self.dropout.p != 0):
             output = self.dropout(output)
-
         return F.relu(output+input)  # +input = identity (residual connection)
 
 
@@ -153,10 +164,27 @@ class Net(nn.Module):
         else:
             self.encoder = encoder
         self.decoder = Decoder(num_classes)
-
+    @timing
     def forward(self, input, only_encode=False):
         if only_encode:
             return self.encoder.forward(input, predict=True)
         else:
             output = self.encoder(input)  # predict=False by default
             return self.decoder.forward(output)
+
+
+if __name__ == "__main__":
+    # create an instance of the CSP3D class
+    from torch.profiler import profile, record_function, ProfilerActivity
+    
+    # create some input data
+    input = torch.randn(20, 3, 416, 416)
+    model = Net(5)
+    # output = model(input)
+    # print the shape of the output tensor
+    # print(output.shape)
+    with profile(activities=[ProfilerActivity.CPU]) as prof:
+        model(input)
+    print(prof.key_averages().table(sort_by="cpu_time_total", row_limit=10))
+
+    prof.export_chrome_trace("hypernet.json")

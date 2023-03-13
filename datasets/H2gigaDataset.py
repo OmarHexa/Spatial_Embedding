@@ -75,11 +75,11 @@ class H2gigaDataset(Dataset):
         else:
             print('Class_map path does not exist')
             
-        # if os.path.exists(os.path.join(path,'hs')):
-        #     self.hs_list = sorted(glob.glob(os.path.join(root_dir, '{}/'.format(type), 'hs/*.npy')))
-        #     print('Number of hs in `{}` directory is {}'.format(type, len(self.classmap_list)))
-        # else:
-        #     print('hyperspectral path does not exist')
+        if os.path.exists(os.path.join(path,'hs')):
+            self.hs_list = sorted(glob.glob(os.path.join(root_dir, '{}/'.format(type), 'hs/*.npy')))
+            print('Number of hs in `{}` directory is {}'.format(type, len(self.hs_list)))
+        else:
+            print('hyperspectral path does not exist')
         
         
         self.class_id = class_id
@@ -102,8 +102,8 @@ class H2gigaDataset(Dataset):
         if image.shape[-1]==4:
             image = rgba2rgb(image)
             
-        if self.normalize:
-            image = normalize_min_max_percentile(image, 1, 99.8, axis=(0, 1))
+        # if self.normalize:
+        #     image = normalize_min_max_percentile(image, 1, 99.8, axis=(0, 1))
         
         # normalize image
         
@@ -115,15 +115,9 @@ class H2gigaDataset(Dataset):
         instance = self.convert_rgb2catagory(instance)
         label = self.convert_rgb2catagory(label,classMap=True)
         
-        # hs = np.load(self.hs_list[index])
-        # hs = hs.reshape(-1,hs.shape[-1])
-        # hs_pc = self.pca.fit_transform(hs)
-        # hs_pc = hs_pc.reshape(label.shape[0],label.shape[1],-1)
+        hs = np.load(self.hs_list[index])
         
-        # sample['image'] = hs_pc
-        # sample['im_name']= self.hs_list[index]
-        
-        
+        sample['hs'] = hs
         
         if self.class_id is not None:
             instance,label= self.decode_instance(label,instance,self.class_id)
@@ -180,9 +174,10 @@ class H2gigaDataset(Dataset):
     
 if __name__=="__main__":
     
-    from utils.transforms import get_transform
-    dir = '../Datasets/20220719'
+    # from utils.transforms import get_transform
+    dir = '../augmented_data/H2giga'
     
     
     data = H2gigaDataset(dir,type='val')
     sample = data.__getitem__(0)
+    print(sample['hs'].shape)
