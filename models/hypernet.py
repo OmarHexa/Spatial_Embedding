@@ -74,7 +74,7 @@ class EELAN(nn.Module):
                               kernel_size=1, stride=1, padding=0, bias=True)
         self.bn2 = nn.BatchNorm2d(out_channel, eps=1e-03)
 
-    @timing
+    # @timing
     def forward(self, input):
         x_left = self.convleft(input)
         x_right =self.convright(input)
@@ -248,6 +248,13 @@ class HyperNet(nn.Module):
 
         return torch.sigmoid(decode)
 
+# taken from pytorch : https://discuss.pytorch.org/t/gpu-memory-that-model-uses/56822
+def ModelSize(model):
+    param_size = sum([param.nelement()*param.element_size() for param in model.parameters()])
+    buffer_size = sum([buf.nelement()*buf.element_size() for buf in model.buffers()])
+
+    size_all_mb = (param_size + buffer_size) / 1024**2
+    print('Model size: {:.3f}MB'.format(size_all_mb))
 
 if __name__ == "__main__":
     import numpy as np
@@ -258,9 +265,11 @@ if __name__ == "__main__":
     model.eval()
     output = model(input)
     # print the shape of the output tensor
+    ModelSize(model)
     print(output.shape)
     # summary(model,(116,416,416))
-    with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA]) as prof:
-        model(input)
+    # with profile(activities=[ProfilerActivity.CPU]) as prof:
+    #     model(input)
+    # print(prof.key_averages().table(sort_by="cpu_time_total", row_limit=20))
 
-    prof.export_chrome_trace("hypernet.json")
+    # prof.export_chrome_trace("hypernet.json")
