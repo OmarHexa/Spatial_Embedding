@@ -1,7 +1,12 @@
 """
-Author: Davy Neven
+Originl Author: Davy Neven
 Licensed under the CC BY-NC 4.0 license (https://creativecommons.org/licenses/by-nc/4.0/)
 """
+""" 
+Modified: Md Omar Faruk
+
+"""
+
 
 import numpy as np
 
@@ -12,7 +17,7 @@ from criterions.lovasz_losses import lovasz_hinge
 
 class SpatialEmbLoss(nn.Module):
 
-    def __init__(self, to_center=True, n_sigma=1, class_weight=[1],num_class=1):
+    def __init__(self, to_center=True, n_sigma=2, class_weight=[1],num_class=5):
         super().__init__()
 
         print('Created spatial emb loss function with: to_center: {}, n_sigma: {}'.format(
@@ -21,7 +26,8 @@ class SpatialEmbLoss(nn.Module):
         self.to_center = to_center
         self.n_sigma = n_sigma
         self.class_weight = class_weight
-        self.num_class =num_class
+        self.class_ids =list(range(1,num_class+1))
+        self.num_class = num_class
         # coordinate map
         xm = torch.linspace(0, 1, 1024).view(1, 1, -1).expand(1, 1024, 1024)
         ym = torch.linspace(0, 1, 1024).view(1, -1, 1).expand(1, 1024, 1024)
@@ -52,17 +58,11 @@ class SpatialEmbLoss(nn.Module):
             instance = instances[b].unsqueeze(0)  # 1 x h x w
             label = labels[b].unsqueeze(0)  # 1 x h x w
             
-            # regress bg to zero
-            
-            
-            # label_ids = label.unique() # mlclass
-            # label_ids = label_ids[label_ids!=0] #mlclass
             #For every class find the instances and calculate loss
-            #TODO check whether it should be equat to total class instead of class present in the image
-            for cl in range(self.num_class):
-                label_mask = label.eq(cl+1) # 1 x h x w
-                class_seed = seed_map[cl].unsqueeze(0) # 1 x h x w
-                bg_mask = label == 0
+            for i, cl in enumerate(self.class_ids):
+                label_mask = label.eq(cl) # 1 x h x w 
+                class_seed = seed_map[i].unsqueeze(0) # 1 x h x w
+                bg_mask = label != cl
                 #TODO depeding on the previous TODO this can change
                 if bg_mask.sum() > 0:
                     seed_loss += torch.sum(torch.pow(class_seed[bg_mask] - 0, 2))
@@ -108,7 +108,7 @@ class SpatialEmbLoss(nn.Module):
                             lovasz_hinge(dist*2-1, in_mask)
 
                     # seed loss
-                    seed_loss += self.class_weight[cl-1] * torch.sum(
+                    seed_loss += self.class_weight[i] * torch.sum(
                                 torch.pow(class_seed[in_mask] - dist[in_mask].detach(), 2))
 
                     # calculate instance iou

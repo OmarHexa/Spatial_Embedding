@@ -76,7 +76,7 @@ args = dict(
 
     # loss options
     loss_opts={
-        'class_weight': [8, 10, 4, 8, 5],
+        'class_weight': [8, 10, 5, 8, 5],
         'num_class': 5,
         'n_sigma': 2
     },
