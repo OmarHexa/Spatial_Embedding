@@ -66,9 +66,9 @@ class EELAN(nn.Module):
         self.convleft = nn.Conv2d(in_channel, mid_channel, 1, 1)
         self.convright = nn.Conv2d(in_channel, mid_channel, 1, 1)
         self.nonbt1 = non_bottleneck_1d(mid_channel,dilation=1)
-        self.nonbt2 = non_bottleneck_1d(mid_channel, dilation=2)
-        self.nonbt3 = non_bottleneck_1d(mid_channel, dilation=4)
-        self.nonbt4 = non_bottleneck_1d(mid_channel, dilation=8)
+        self.nonbt2 = non_bottleneck_1d(mid_channel, dilation=4)
+        self.nonbt3 = non_bottleneck_1d(mid_channel, dilation=1)
+        self.nonbt4 = non_bottleneck_1d(mid_channel, dilation=4)
         
         self.agg = nn.Conv2d(2*in_channel, out_channel,
                               kernel_size=1, stride=1, padding=0, bias=True)
@@ -76,6 +76,7 @@ class EELAN(nn.Module):
 
     # @timing
     def forward(self, input):
+        #channel partialization
         x_left = self.convleft(input)
         x_right =self.convright(input)
         #computational block
@@ -83,7 +84,9 @@ class EELAN(nn.Module):
         x1 = self.nonbt2(x1)
         x2 = self.nonbt3(x1)
         x2 = self.nonbt4(x2)
+        
         c_ = x_left.shape[-1]//2
+        #channel shuffle
         xg1 = torch.cat((x_left[:,:c_],x_right[:,:c_],x1[:,:c_],x2[:,:c_]),dim=1)
         xg2 = torch.cat((x_left[:,c_:],x_right[:,c_:],x1[:,c_:],x2[:,c_:]),dim=1)
         
@@ -212,41 +215,96 @@ class Skip_connector(nn.Module):
         
         
  
-class HyperNet(nn.Module):
-    # use encoder to pass pretrained encoder
-    def __init__(self, in_channel, num_classes, feature=32):
-        super().__init__()
-        self.encoder = nn.ModuleList()
-        self.decoder = nn.ModuleList()
-        self.skip = nn.ModuleList()
+# class HyperNet(nn.Module):
+#     # use encoder to pass pretrained encoder
+#     def __init__(self, in_channel, num_classes, feature=32):
+#         super().__init__()
+#         self.encoder = nn.ModuleList()
+#         self.decoder = nn.ModuleList()
+#         self.skip = nn.ModuleList()
 
-        self.downsample = ChannelsamplerBlock(in_channel,feature)# C x H --> 32 x H/2
-        in_channel = feature
+#         self.downsample = ChannelsamplerBlock(in_channel,feature)# C x H --> 32 x H/2
+#         in_channel = feature
         
+#         for id in range(2,5,2):
+#             self.encoder.append(EncoderBlock(in_channel, id*feature)) #32 x H/2 --> (64,128) x (H/4,H/8)
+#             in_channel = id*feature 
+            
+#         self.decoder.append(DecoderBlock(in_channel,feature*2))
+#         self.skip.append(Skip_connector(feature*4,feature*2))
+#         self.decoder.append(DecoderBlock(feature*2,feature))
+#         self.skip.append(Skip_connector(feature*2,feature))
+        
+            
+#         self.output = UpsamplerBlock(feature,num_classes)
+        
+#     @timing  
+#     def forward(self, input):
+#         input = self.downsample(input)
+#         encode1 = self.encoder[0](input)
+#         decode = self.encoder[1](encode1)
+#         decode = self.decoder[0](decode)
+#         decode = self.skip[0](torch.cat((decode,encode1),dim=1))
+#         decode = self.decoder[1](decode)
+#         decode = self.skip[1](torch.cat((decode,input),dim=1))
+#         decode = self.output(decode)
+
+#         return torch.sigmoid(decode)
+
+
+class HyperEncoder(nn.Module):
+    def __init__(self, in_channel, feature=32):
+        super().__init__()
+        self.chsample = ChannelsamplerBlock(in_channel,feature)
+        self.encoder = nn.ModuleList()
+        in_channel = feature
         for id in range(2,5,2):
             self.encoder.append(EncoderBlock(in_channel, id*feature)) #32 x H/2 --> (64,128) x (H/4,H/8)
-            in_channel = id*feature 
-            
-        self.decoder.append(DecoderBlock(in_channel,feature*2))
-        self.skip.append(Skip_connector(feature*4,feature*2))
-        self.decoder.append(DecoderBlock(feature*2,feature))
-        self.skip.append(Skip_connector(feature*2,feature))
+            in_channel = id*feature
         
-            
-        self.output = UpsamplerBlock(feature,num_classes)
-        
-    @timing  
     def forward(self, input):
-        input = self.downsample(input)
-        encode1 = self.encoder[0](input)
-        decode = self.encoder[1](encode1)
-        decode = self.decoder[0](decode)
-        decode = self.skip[0](torch.cat((decode,encode1),dim=1))
-        decode = self.decoder[1](decode)
-        decode = self.skip[1](torch.cat((decode,input),dim=1))
-        decode = self.output(decode)
+        input = self.chsample(input)
+        encode = self.encoder[0](input)
+        encode = self.encoder[1](encode)
+        return encode
+class Decoder (nn.Module):
+    def __init__(self, num_classes):
+        super().__init__()
 
-        return torch.sigmoid(decode)
+        self.layers = nn.ModuleList()
+
+        self.layers.append(UpsamplerBlock(128, 64))
+        self.layers.append(non_bottleneck_1d(64, 0, 1))
+        self.layers.append(non_bottleneck_1d(64, 0, 1))
+
+        self.layers.append(UpsamplerBlock(64, 16))
+        self.layers.append(non_bottleneck_1d(16, 0, 1))
+        self.layers.append(non_bottleneck_1d(16, 0, 1))
+
+        self.output_conv = nn.ConvTranspose2d(
+            16, num_classes, 2, stride=2, padding=0, output_padding=0, bias=True)
+
+    def forward(self, input):
+        output = input
+
+        for layer in self.layers:
+            output = layer(output)
+
+        output = self.output_conv(output)
+
+        return output
+    
+class HyperNet(nn.Module):
+    def __init__(self, in_channel,num_classes):  # use encoder to pass pretrained encoder
+        super().__init__()
+
+        self.encoder = HyperEncoder(in_channel)
+        self.decoder = Decoder(num_classes)
+    @timing
+    def forward(self, input, only_encode=False):
+        output = self.encoder(input)  # predict=False by default
+        return self.decoder.forward(output)
+
 
 # taken from pytorch : https://discuss.pytorch.org/t/gpu-memory-that-model-uses/56822
 def ModelSize(model):
@@ -265,11 +323,12 @@ if __name__ == "__main__":
     model.eval()
     output = model(input)
     # print the shape of the output tensor
-    ModelSize(model)
+    # ModelSize(model)
     print(output.shape)
     # summary(model,(116,416,416))
     # with profile(activities=[ProfilerActivity.CPU]) as prof:
     #     model(input)
-    # print(prof.key_averages().table(sort_by="cpu_time_total", row_limit=20))
+    # # print(prof.key_averages().table(sort_by="cpu_time_total", row_limit=20))
 
     # prof.export_chrome_trace("hypernet.json")
+    
